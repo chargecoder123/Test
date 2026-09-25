@@ -173,6 +173,96 @@ test('opens credits and a random topic', async ({ page }) => {
 })
 
 
+const nasaFixture = [
+  {
+    id: 'fixture-1', title: 'Webb Watches a Galaxy Cluster Bend Light', topic: 'universe',
+    summary: 'Gravitational lensing magnifies galaxies far behind the cluster.', link: 'https://science.nasa.gov/fixture-1',
+    published: new Date().toISOString(), source: 'NASA Science', sourceId: 'science',
+    sourceUrl: 'https://science.nasa.gov/', image: null, credit: null,
+  },
+  {
+    id: 'fixture-2', title: 'A Fresh Crater Appears on the Moon', topic: 'solar',
+    summary: 'The Lunar Reconnaissance Orbiter spotted a new impact crater.', link: 'https://science.nasa.gov/fixture-2',
+    published: new Date(Date.now() - 3 * 86400000).toISOString(), source: 'NASA newsroom', sourceId: 'newsroom',
+    sourceUrl: 'https://www.nasa.gov/news/', image: null, credit: null,
+  },
+  {
+    id: 'fixture-3', title: 'Crew-13 Experiments Head to the Space Station', topic: 'missions',
+    summary: 'New studies will track human health in microgravity.', link: 'https://www.nasa.gov/fixture-3',
+    published: new Date(Date.now() - 6 * 86400000).toISOString(), source: 'NASA newsroom', sourceId: 'newsroom',
+    sourceUrl: 'https://www.nasa.gov/news/', image: null, credit: null,
+  },
+]
+
+async function serveNasaNews(page, { status = 200, items = nasaFixture } = {}) {
+  await page.route('**/api/nasa-news*', route => route.fulfill({
+    status,
+    contentType: 'application/json',
+    body: JSON.stringify(status === 200
+      ? { items, fetchedAt: new Date().toISOString(), sources: [{ id: 'science', label: 'NASA Science', site: 'https://science.nasa.gov/', ok: true, count: items.length, error: null }] }
+      : { items: [], fetchedAt: null, error: 'NASA is unreachable.' }),
+  }))
+}
+
+test('opens the NASA updates page from the navigation', async ({ page }) => {
+  await page.getByRole('navigation', { name: 'Main navigation' }).getByRole('link', { name: 'NASA updates' }).click()
+  await expect(page).toHaveURL(/#\/news$/)
+  await expect(page.getByRole('heading', { level: 1 })).toContainText('News from the universe.')
+  await expect(page.locator('.news-card').first()).toBeVisible()
+  await expect(page.getByRole('link', { name: 'NASA updates' })).toHaveAttribute('aria-current', 'page')
+  await page.getByRole('link', { name: 'Discover' }).click()
+  await expect(page.getByRole('heading', { level: 1 })).toContainText('The universe.')
+})
+
+test('syncs NASA updates live and links back to every story', async ({ page }) => {
+  await serveNasaNews(page)
+  await page.goto('/#/news')
+  await expect(page.getByRole('heading', { level: 1 })).toContainText('News from the universe.')
+  await expect(page.locator('.news-pill')).toContainText('Live from NASA')
+  await expect(page.locator('.news-card')).toHaveCount(3)
+  await expect(page.locator('.news-card-featured h3')).toHaveText('Webb Watches a Galaxy Cluster Bend Light')
+  const links = page.locator('.news-card h3 a')
+  await expect(links.first()).toHaveAttribute('href', /science\.nasa\.gov/)
+  await expect(links.first()).toHaveAttribute('target', '_blank')
+  await expect(page.getByRole('status')).toContainText('3 updates')
+})
+
+test('filters and searches NASA updates', async ({ page }) => {
+  await serveNasaNews(page)
+  await page.goto('/#/news')
+  await expect(page.locator('.news-card')).toHaveCount(3)
+  await page.getByLabel('Filter NASA updates').getByRole('button', { name: /Solar system/ }).click()
+  await expect(page.locator('.news-card')).toHaveCount(1)
+  await expect(page.locator('.news-card h3')).toHaveText('A Fresh Crater Appears on the Moon')
+  await page.getByRole('textbox', { name: 'Search NASA updates' }).fill('microgravity')
+  await expect(page.locator('.empty-search')).toContainText('Nothing on this frequency yet.')
+  await page.getByRole('button', { name: 'Show every update' }).click()
+  await expect(page.locator('.news-card')).toHaveCount(3)
+  await page.getByRole('textbox', { name: 'Search NASA updates' }).fill('crater')
+  await expect(page.locator('.news-card')).toHaveCount(1)
+})
+
+test('falls back to the bundled snapshot when a live sync is unavailable', async ({ page }) => {
+  await serveNasaNews(page, { status: 502 })
+  await page.goto('/#/news')
+  await expect(page.locator('.news-pill')).toContainText('Bundled snapshot')
+  await expect(page.locator('.news-card').first()).toBeVisible()
+  await expect(page.locator('.news-note')).toContainText('Live sync is unavailable')
+  await expect(page.locator('.news-card h3 a').first()).toHaveAttribute('href', /^https:\/\//)
+})
+
+test('shows the newest NASA update on the home page', async ({ page }) => {
+  await serveNasaNews(page)
+  await page.reload()
+  const flash = page.locator('.news-flash')
+  await expect(flash).toContainText('LATEST FROM NASA')
+  await expect(flash).toContainText('Webb Watches a Galaxy Cluster Bend Light')
+  await page.locator('#nasa-updates').scrollIntoViewIfNeeded()
+  await expect(page.locator('.news-teaser-card')).toHaveCount(3)
+  await page.getByRole('button', { name: 'Every NASA update' }).click()
+  await expect(page.getByRole('heading', { level: 1 })).toContainText('News from the universe.')
+})
+
 test('passes automated WCAG checks on the page and its reading rooms', async ({ page }) => {
   const audit = async () => {
     const result = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze()
