@@ -4,9 +4,11 @@ import {
   ArrowUpRight, ArrowRight, ArrowDown, ArrowUp, Search, X, Menu,
   Sparkles, Orbit, Grid2X2, Plus, Minus, Pause, Play,
   ChevronLeft, ChevronRight, Telescope, BookOpen, ExternalLink,
-  Check, Shuffle,
+  Check, Shuffle, Clock,
 } from 'lucide-react'
 import { categories, topics, planets, epochs, questions } from './data'
+import NewsPage from './NewsPage'
+import { useNasaNews, formatDate, isFresh, relativeTime } from './news'
 
 const icons = { all: Grid2X2, solar: Orbit, deep: Sparkles, unknown: Telescope }
 const navigation = [
@@ -14,7 +16,12 @@ const navigation = [
   { href: '#solar-system', label: 'Solar system' },
   { href: '#timeline', label: 'Cosmic timeline' },
   { href: '#perspectives', label: 'The big questions' },
+  { href: '#/news', label: 'NASA updates', page: 'news' },
 ]
+
+function readPage() {
+  return window.location.hash === '#/news' ? 'news' : 'home'
+}
 
 function Logo({ light = false, onClick }) {
   return <a className={`brand ${light ? 'brand-light' : ''}`} href="#top" aria-label="Universe home" onClick={onClick}>
@@ -189,9 +196,39 @@ function QuickTour({ onFinish }) {
 function Credits() {
   return <div className="credits-content"><Eyebrow>GROUNDED IN SCIENCE</Eyebrow><h2 id="dialog-title">A note on our <em>little guide.</em></h2><p>Universe is an independent educational project, not affiliated with NASA, ESA, or any space agency. It is designed to make big ideas a little more approachable.</p>
     <h3>Science, with a little humility.</h3><p>Cosmic ages, distances, and planet measurements are rounded estimates. Our 93-billion-light-year figure refers to the present-day diameter of the <strong>observable</strong> universe, not the entire universe. Planet sizes, orbital paths, and animation speeds are illustrative and not to scale.</p><p>Flat, open, and closed describe possibilities for spatial geometry—not separate observed universes. Multiverse and cyclic-universe ideas are speculative and clearly labeled. The geometric diagrams are simplified visual analogies.</p>
+    <h3>NASA updates</h3><p>The “NASA updates” page syncs headlines, summaries, and thumbnail images directly from NASA’s public feeds and the Astronomy Picture of the Day API. Those images are hosted by NASA, and each story links back to the original. Where an update has no image, this site uses its own artwork instead, labeled as an illustration.</p>
     <h3>Our starting points</h3><div className="credits-links"><a href="https://science.nasa.gov/universe/" target="_blank" rel="noreferrer">NASA · Our universe <ExternalLink size={15} /></a><a href="https://science.nasa.gov/solar-system/" target="_blank" rel="noreferrer">NASA · The solar system <ExternalLink size={15} /></a><a href="https://map.gsfc.nasa.gov/universe/uni_shape.html" target="_blank" rel="noreferrer">NASA WMAP · Cosmic geometry <ExternalLink size={15} /></a></div>
     <h3>Astronomical imagery</h3><p>Galaxy: Hubble image of NGC 1385, credited to ESA/Hubble & NASA, J. Lee and the PHANGS-HST team. Nebula: James Webb image of the Pillars of Creation, credited to NASA, ESA, CSA, and STScI. The Saturn, Earth, and black-hole images are AI-generated scientific illustrations, not observational photographs. Some images represent a broader topic rather than the exact object discussed.</p><p>All illustrations and animations are for learning, not scientific measurement. This site honors your device’s reduced-motion preference, and you can pause the animations at any time.</p>
   </div>
+}
+
+function LatestFromNasa({ news, onOpenAll }) {
+  const latest = news.items.slice(0, 3)
+  if (latest.length === 0) return null
+  return <section className="news-teaser-section section container" id="nasa-updates">
+    <div className="section-heading reveal">
+      <div><Eyebrow>05 / STRAIGHT FROM THE SOURCE</Eyebrow><h2>Live from <em>NASA.</em></h2></div>
+      <p>News releases, science updates, and astronomy pictures of the day.<br />Synced automatically from NASA, so this page keeps up with the universe.</p>
+    </div>
+    <div className="news-teaser">
+      {latest.map(item => <a key={item.id} className="news-teaser-card" href={item.link} target="_blank" rel="noreferrer">
+        <div className="news-teaser-meta"><span>{item.source}</span>{isFresh(item.published) && <span className="news-teaser-new">NEW</span>}</div>
+        <h3>{item.title}</h3>
+        <p>{item.summary}</p>
+        <div className="news-teaser-foot"><time dateTime={item.published || ''}>{formatDate(item.published)}</time><ArrowUpRight size={16} /></div>
+      </a>)}
+    </div>
+    <div className="news-teaser-actions">
+      <button className="button button-dark" onClick={onOpenAll}>Every NASA update <ArrowRight size={16} /></button>
+      <span className="news-teaser-status">
+        <span className={`news-pulse mode-${news.mode}`} aria-hidden="true" />
+        {news.mode === 'live' ? `Synced ${relativeTime(news.lastUpdated)}` : `Updated ${relativeTime(news.lastUpdated)}`}
+        <button className="text-button news-sync-link" onClick={() => news.sync({ force: true })} disabled={news.syncing}>
+          {news.syncing ? 'Syncing…' : 'Sync now'}
+        </button>
+      </span>
+    </div>
+  </section>
 }
 
 function makePlanetTopic(planet) {
@@ -213,6 +250,8 @@ export default function App() {
   const [faqOpen, setFaqOpen] = useState(null)
   const [mobileOpen, setMobileOpen] = useState(false)
   const [activeNav, setActiveNav] = useState('#discover')
+  const [page, setPage] = useState(readPage)
+  const news = useNasaNews()
   const [modal, setModal] = useState(null)
   const [motion, setMotion] = useState(() => {
     try { const saved = localStorage.getItem('universe-motion'); if (saved !== null) return saved === 'on' } catch { /* Private browsing: use system preference. */ }
@@ -242,11 +281,11 @@ export default function App() {
     }, { threshold: 0.08 })
     document.querySelectorAll('.reveal').forEach(el => observer.observe(el))
     const navObserver = new IntersectionObserver(entries => {
-      entries.forEach(entry => { if (entry.isIntersecting) setActiveNav(`#${entry.target.id}`) })
+      entries.forEach(entry => { if (entry.isIntersecting && page === 'home') setActiveNav(`#${entry.target.id}`) })
     }, { rootMargin: '-15% 0px -55% 0px', threshold: 0 })
-    navigation.forEach(n => { const el = document.querySelector(n.href); if (el) navObserver.observe(el) })
+    navigation.filter(n => !n.page).forEach(n => { const el = document.querySelector(n.href); if (el) navObserver.observe(el) })
     return () => { observer.disconnect(); navObserver.disconnect() }
-  }, [])
+  }, [page])
 
   useEffect(() => {
     const handleKey = e => {
@@ -259,17 +298,63 @@ export default function App() {
 
   function surpriseMe() { openTopic(topics[Math.floor(Math.random() * topics.length)]) }
 
+  // Two views, one URL apiece: the field guide at "#", NASA updates at "#/news".
+  useEffect(() => {
+    const onHashChange = () => setPage(readPage())
+    window.addEventListener('hashchange', onHashChange)
+    return () => window.removeEventListener('hashchange', onHashChange)
+  }, [])
+
+  const showPage = useCallback((next) => {
+    if (window.location.hash !== next) window.location.hash = next
+    setPage(next === '#/news' ? 'news' : 'home')
+  }, [])
+
+  const navigate = useCallback((link) => (event) => {
+    event?.preventDefault()
+    setMobileOpen(false)
+    if (link.page) {
+      setActiveNav(link.href)
+      showPage(link.href)
+      window.scrollTo({ top: 0, behavior: 'instant' })
+      return
+    }
+    setActiveNav(link.href)
+    const scroll = () => document.querySelector(link.href)?.scrollIntoView({ behavior: motion ? 'smooth' : 'instant', block: 'start' })
+    if (page === 'news') {
+      showPage(link.href)
+      requestAnimationFrame(() => requestAnimationFrame(scroll))
+    } else {
+      if (window.location.hash !== link.href) window.location.hash = link.href
+      scroll()
+    }
+  }, [motion, page, showPage])
+
+  const openNews = useCallback(() => navigate({ href: '#/news', page: 'news' })(), [navigate])
+  const goHome = useCallback(() => { setActiveNav('#discover'); showPage('#discover') }, [showPage])
+
   return <>
     <a className="skip-link" href="#main">Skip to content</a>
     <header className="site-header" id="top">
-      <div className="header-inner"><Logo onClick={() => setMobileOpen(false)} /><div className="brand-caption">A SMALL GUIDE TO<br />A VERY BIG PLACE.</div>
-        <nav className="desktop-nav" aria-label="Main navigation">{navigation.map(link => <a key={link.href} href={link.href} className={activeNav === link.href ? 'active' : ''} onClick={() => setActiveNav(link.href)}>{link.label}</a>)}</nav>
+      <div className="header-inner"><Logo onClick={() => { setMobileOpen(false); if (page === 'news') goHome() }} /><div className="brand-caption">A SMALL GUIDE TO<br />A VERY BIG PLACE.</div>
+        <nav className="desktop-nav" aria-label="Main navigation">{navigation.map(link => {
+          const active = link.page ? page === 'news' : page === 'home' && activeNav === link.href
+          return <a key={link.href} href={link.href} className={active ? 'active' : ''} aria-current={active ? 'page' : undefined} onClick={navigate(link)}>{link.label}</a>
+        })}</nav>
         <div className="header-actions"><button className="header-search icon-button" aria-label="Search the universe" title="Search discoveries (Ctrl/⌘ K)" onClick={() => openModal({ type: 'library' })}><Search size={19} strokeWidth={1.6} /></button><button className="header-cta" onClick={surpriseMe}>Surprise me <ArrowUpRight size={16} /></button><button className="menu-toggle icon-button" ref={menuButton} aria-label={mobileOpen ? 'Close navigation' : 'Open navigation'} aria-expanded={mobileOpen} aria-controls="mobile-nav" onClick={() => setMobileOpen(!mobileOpen)}>{mobileOpen ? <X size={23} /> : <Menu size={23} />}</button></div>
       </div>
-      {mobileOpen && <nav className="mobile-nav" id="mobile-nav" aria-label="Mobile navigation">{navigation.map(link => <a key={link.href} href={link.href} onClick={() => { setActiveNav(link.href); setMobileOpen(false) }}>{link.label}<ArrowUpRight size={17} /></a>)}<button onClick={surpriseMe}>Surprise me <Shuffle size={17} /></button></nav>}
+      {mobileOpen && <nav className="mobile-nav" id="mobile-nav" aria-label="Mobile navigation">{navigation.map(link => <a key={link.href} href={link.href} onClick={navigate(link)}>{link.label}<ArrowUpRight size={17} /></a>)}<button onClick={surpriseMe}>Surprise me <Shuffle size={17} /></button></nav>}
     </header>
 
     <main id="main">
+      {page === 'news' && <NewsPage news={news} onBrowseTopics={goHome} />}
+      {page === 'home' && <>
+      {news.items[0] && <a className={`news-flash ${isFresh(news.items[0].published) ? 'is-new' : ''}`} href="#/news" onClick={navigate({ href: '#/news', page: 'news' })}>
+        <span className="news-flash-label"><span className="news-pulse" aria-hidden="true" />LATEST FROM NASA</span>
+        <span className="news-flash-title">{news.items[0].title}</span>
+        <span className="news-flash-time"><Clock size={12} /> {relativeTime(news.items[0].published)}</span>
+        <ArrowUpRight size={16} />
+      </a>}
       <section className="hero" aria-labelledby="hero-title">
         <div className="hero-background" /><div className="hero-shade" /><Starfield />
         <div className="hero-copy"><Eyebrow light>FOR THE ENDLESSLY CURIOUS</Eyebrow><h1 id="hero-title">The universe.<br /><em>A little closer.</em></h1><p>From our cosmic neighborhood to the edge of the unknown.<br className="desktop-break" /> A little understanding. A whole lot of wonder.</p>
@@ -310,9 +395,12 @@ export default function App() {
         <div className="further-questions"><span>AND IF WE LOOK A LITTLE FURTHER…</span><div><button onClick={() => openTopic(topics.find(t => t.id === 'multiverse'))}>A multiverse? <ArrowUpRight size={15} /></button><button onClick={() => openTopic(topics.find(t => t.id === 'cyclic'))}>A cyclic universe? <ArrowUpRight size={15} /></button><span className="hypothesis-label">Intriguing ideas. Not established facts.</span></div></div>
       </div></section>
 
+      <LatestFromNasa news={news} onOpenAll={openNews} />
+
       <section className="faq-section container section"><div className="faq-heading"><Eyebrow>GOOD QUESTIONS NEVER GET OLD</Eyebrow><h2>A few things<br /><em>you might wonder.</em></h2><p>Big questions don’t always have simple answers.<br />But they’re always worth asking.</p><span className="faq-doodle" aria-hidden="true"><Orbit size={90} strokeWidth={0.65} /></span></div><div className="faq-list">{questions.map((question, i) => <div key={question.q} className={`faq-item ${faqOpen === i ? 'open' : ''}`}><h3><button onClick={() => setFaqOpen(faqOpen === i ? null : i)} aria-expanded={faqOpen === i} aria-controls={`answer-${i}`}><span>{question.q}</span>{faqOpen === i ? <Minus size={18} /> : <Plus size={18} />}</button></h3><div id={`answer-${i}`} hidden={faqOpen !== i}><p>{question.a}</p></div></div>)}</div></section>
 
       <section className="wonder-section container reveal"><div className="wonder-orbits" aria-hidden="true"><i /><i /><i /><span>✳</span></div><div><Eyebrow light>STAY A LITTLE STARSTRUCK</Eyebrow><h2>There’s always<br /><em>more to wonder.</em></h2><p>Let your curiosity take the long way home.</p><button className="button button-lime" onClick={surpriseMe}>Show me something extraordinary <ArrowUpRight size={18} /></button></div><span className="wonder-footnote">A SMALL CLICK. A NEW PERSPECTIVE.</span></section>
+      </>}
     </main>
 
     <footer className="site-footer container"><div className="footer-top"><div><Logo /><p>A small guide to a very big place.</p></div><div className="footer-message">Grounded in science.<br /><em>Open to wonder.</em></div><a href="#top" className="back-to-top">Back to the stars <span><ArrowUp size={17} /></span></a></div><div className="footer-bottom"><span>© {new Date().getFullYear()} Universe. Made for curious minds.</span><div><button onClick={() => openModal({ type: 'credits' })}>Science & image credits <ArrowUpRight size={13} /></button><span className="footer-dot" /><button onClick={() => setMotion(!motion)}>{motion ? <Pause size={12} /> : <Play size={12} />}Motion {motion ? 'on' : 'off'}</button></div></div></footer>
